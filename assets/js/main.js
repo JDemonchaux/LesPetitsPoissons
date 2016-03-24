@@ -5,21 +5,14 @@ const GAME = new Phaser.Game(1280, 720, Phaser.AUTO, '', {
     render: render
 });
 
-
-var map;
-var layer;
-var bitmap;
-var fish;
-var lineOfSight;
-var food;
-var group;
+var socket, foods, fishes;
+var currentSpeed = 300;
 var cursors;
-var currentSpeed = 0;
-var socket;
-var line;
+var foodMaterial = [];
+var fishesMaterial = [];
 
 function connect() {
-    socket = io("http://192.168.0.11:5000/socket.io");
+    socket = io("http://192.168.0.14:5000/socket.io");
     socket.emit("canal a", "1");
     socket.on('canal a', function (msg) {
         var input = msg.split(";");
@@ -27,61 +20,58 @@ function connect() {
         input[1] = parseInt(input[1]);
         input[2] = parseInt(input[2]);
 
-        cursors.up.isDown = input[0] == 1;
-        cursors.left.isDown = input[1] == 1;
-        cursors.right.isDown = input[2] == 1;
-
-        console.log(input);
-
     });
 
     socket.on('disconnect', function () {
-        cursors.up.isDown = false;
-        cursors.left.isDown = false;
-        cursors.right.isDown = false;
-    })
+    });
 }
 
 function preload() {
     GAME.load.image('background', 'assets/images/bg/aquarium.jpg');
     GAME.load.image('food', 'assets/images/food/food.png');
     GAME.load.image('fish1', 'assets/images/fishes/fish1.png');
-    GAME.load.image('lineOfSight', 'assets/images/fishes/lavue.png');
+    GAME.load.image('lineOfSight', 'assets/images/fishes/lapetitevue.png');
 
 
 }
 
 
 function create() {
-    GAME.physics.startSystem(Phaser.Physics.ARCADE);
+    GAME.physics.startSystem(Phaser.Physics.P2JS);
+    GAME.physics.p2.restitution = 0.9;
     GAME.add.image(0, 0, 'background');
-
-    map = GAME.add.tilemap();
-    layer = map.createBlankLayer('Layer 1', 40, 30, 32, 32);
-    layer.debug = true;
-
+    var worldMaterial = GAME.physics.p2.createMaterial('worldMaterial');
+    console.log(GAME.physics.p2.defaultContactMaterial);
     GAME.stage.disableVisibilityChange = true;
+    GAME.physics.p2.inertia = false;
+    // Add the food
+    foods = GAME.add.physicsGroup(Phaser.Physics.P2JS);
+    addFood(20);
 
-    //add the fucking god damn fish
-    var x = GAME.world.centerX;
-    var y = GAME.world.centerY;
-    fish = GAME.add.sprite(x, y, "fish1");
-    lineOfSight = GAME.add.sprite(x, y, "lineOfSight");
-    GAME.physics.enable(fish);
-    GAME.physics.enable(lineOfSight);
+    // Add the fishes
+    fishes = GAME.add.group();
+    for (var i = 0; i < 1; i++) {
+        var x = GAME.world.randomX;
+        var y = GAME.world.randomY;
+        var fish = fishes.create(x, y, "fish1");
+
+        // fishesMaterial.push(GAME.physics.p2.createMaterial('spriteMaterial', fish.body));
 
 
-    fish.anchor.setTo(0.5, 0.5);
-    lineOfSight.anchor.setTo(0, 0.5);
+        GAME.physics.p2.enable(fish);
+        fish.body.immovable = false;
 
-    fish.body.collideWorldBounds = true;
-    fish.body.immovable = false;
+        // fish.body.inertia = -1;
+        // fish.body.mass = 1;
+        // fish.body.friction = 10;
+        // fish.body.restitution = 0;
+        //
+        // fish.body.setZeroVelocity();
+        // fish.body.setZeroForce();
 
-    // Groupe pour la nourriture
-    group = GAME.add.physicsGroup();
+        fish.body.onBeginContact.add(collideFish, this);
+    }
 
-    // Add the god damn food
-    addFood();
 
     cursors = GAME.input.keyboard.createCursorKeys();
 
@@ -90,78 +80,57 @@ function create() {
     socket.emit("canal score", "0");
 
 
-    GAME.time.events.loop(1000, addFood, this);
+    GAME.time.events.loop(5000, addFood, this);
+
 }
 
+function collideFish(body, a, b, c, d) {
+    if (body) {
+        body.sprite.kill();
+    }
+}
 
 function update() {
-    GAME.physics.arcade.collide(fish, group, fishCollisionHandler, processHandler, this);
-    //GAME.physics.arcade.collide(lineOfSight, group, lineCollisionHandler, processHandler, this);
-
-    var input = "0";
-    for (var i = 0; i < group.children.length; i++) {
-        var boundsLine = lineOfSight.getBounds();
-        var boundsFood = group.children[i].getBounds();
-        var bool = Phaser.Rectangle.intersects(boundsLine, boundsFood);
-        if (bool) {
-            input = "1";
-            break;
+    for (var i = 0; i < fishes.children.length; i++) {
+        if (cursors.left.isDown) {
+            fishes.children[i].body.angle -= 4;
         }
-    }
-
-    socket.emit("canal a", input);
-
-    if (cursors.left.isDown) {
-        fish.angle -= 4;
-        lineOfSight.angle -= 4;
-    }
-    else if (cursors.right.isDown) {
-        fish.angle += 4;
-        lineOfSight.angle += 4;
-    }
-
-    if (cursors.up.isDown) {
-        currentSpeed = 300;
-    }
-    else {
-        if (currentSpeed > 0) {
-            currentSpeed -= 4;
+        else if (cursors.right.isDown) {
+            fishes.children[i].body.angle += 4;
         }
+
+        if (cursors.up.isDown) {
+            // fishes.children[i].body.moveForward(300);
+            fishes.children[i].body.thrust(currentSpeed);
+        }
+        else if (cursors.down.isDown) {
+            // fishes.children[i].body.reverse(currentSpeed);
+            // if (currentSpeed > 0) {
+            //     currentSpeed -= 4;
+            // }
+        }
+        // GAME.physics.arcade.velocityFromRotation(fishes.children[i].rotation, currentSpeed, fishes.children[i].body.angularVelocity);
+
     }
-
-    if (currentSpeed > 0) {
-        GAME.physics.arcade.velocityFromRotation(fish.rotation, currentSpeed, fish.body.velocity);
-        GAME.physics.arcade.velocityFromRotation(lineOfSight.rotation, currentSpeed, lineOfSight.body.velocity);
-        lineOfSight.x = fish.x;
-        lineOfSight.y = fish.y;
-    }
-
-
-    // Clear the line before redraw
-    //bitmap.context.clearRect(0, 0, this.game.width, this.game.height);
-    //
-    //for (i = 0; i < group.children.length; i++) {
-    //    var ray = new Phaser.Line(fish.x, fish.y, group.children[i].world.x, group.children[i].world.y);
-    //
-    //    bitmap.context.beginPath();
-    //    bitmap.context.moveTo(fish.x, fish.y);
-    //    bitmap.context.lineTo(group.children[i].world.x + 8, group.children[i].world.y + 8);
-    //    bitmap.context.stroke();
-    //}
-    //;
-    //
-    //bitmap.dirty = true;
-
 }
 
-function render() {
 
+function render() {
+    for (var j = 0; j < fishes.children.length; j++) {
+        //GAME.debug.body(fishes.children[j].lineOfSight);
+        GAME.debug.body(fishes.children[j]);
+        //GAME.debug.spriteInfo(fishes.children[j].lineOfSight, 32, 32);
+    }
+
+    for (var i = 0; i < foods.children.length; i++) {
+        //GAME.debug.body(foods.children[i]);
+    }
 }
 
 
 function fishCollisionHandler(fish, food) {
     food.kill();
-    group.remove(food);
+    foods.remove(food);
     socket.emit("canal score", "1");
     return true;
 }
@@ -174,28 +143,26 @@ function foodCollisionHandler(line, food) {
     return true;
 }
 
+function detectWallCollision(fish) {
+    return true;
+}
+
 function processHandler(fish, food) {
     return true;
 }
 
-
-function addFood() {
-    for (i = 0; i < 1; i++) {
+function addFood(nbFood) {
+    for (i = 0; i < nbFood; i++) {
         var x = GAME.world.randomX;
         var y = GAME.world.randomY;
 
-        var c = group.create(x, y, "food");
+        var c = foods.create(x, y, "food");
+        GAME.physics.p2.enable(c);
         c.scale.setTo(0.5, 0.5);
-        //c.body.mass = -100;
+        // c.body.kinematic = true;
+        c.body.restitution = 0;
+        var f = GAME.physics.p2.createMaterial('spriteMaterial', c.body);
+        foodMaterial.push(f);
     }
 }
-
-
-function handleFish(input) {
-    if (input[1] == 1.0) {
-        console.log("on avance");
-    }
-}
-
-
-document.querySelector("#addFood").addEventListener("click", addFood);
+document.querySelector("#addFood").addEventListener("click", addFood(document.querySelector("#nbFood")));
